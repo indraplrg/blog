@@ -8,7 +8,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const router = require("./routes/user.js");
-app.use("/", router);
+app.use("/api", router);
 
 app.listen(PORT, () => {
   db.connect((error) => {
