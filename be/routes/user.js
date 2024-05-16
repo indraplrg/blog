@@ -2,82 +2,58 @@ const express = require("express");
 const bcrypt = require("bcrypt");
 const router = express.Router();
 
-const db = require("../database/connection.js");
-const Validation = require("../middlewares/Validation.js");
-
-router.get("/user", (req, res) => {
-  const sql = "SELECT * from user";
-  db.query(sql, (error, result) => {
-    if (error) {
-      console.error("Error to get data", error);
-      return res.status(500).json({ message: "Failed to get data" });
-    } else {
-      res.status(201).json({ result });
-    }
-  });
-});
-
-router.get("/content", (req, res) => {
-  const sql = "SELECT * from content";
-  db.query(sql, (error, result) => {
-    if (error) {
-      console.error("Error to get data", error);
-      return res.status(500).json({ message: "Failed to get data" });
-    } else {
-      res.status(201).json({ result });
-    }
-  });
-});
-
-router.post("/content", (req, res) => {
-  const { userid, text } = req.body;
-
-  if (!text || !userid) {
-    return res.status(400).json({ message: "Text and User is required!" });
-  }
-
-  const sql = "INSERT INTO content (user_id,text) VALUES (?,?)";
-  const values = [userid, text];
-
-  db.query(sql, values, (error, result) => {
-    if (error) {
-      console.error("Error recording data:", error);
-      return res.status(500).json({ message: "Failed to record data" });
-    } else {
-      res.status(201).json({ message: "Data recorded to database", result });
-    }
-  });
-});
+const jwt = require("jsonwebtoken");
+const userModel = require("../models/user.js");
 
 router.post("/login", async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
-    return res.status(400).json({ message: "Username or Password invalid!" });
+    return res
+      .status(400)
+      .json({ message: "Username or Password is required!" });
   }
 
-  const sql = "SELECT password FROM user WHERE username = ?";
-  const values = [username];
+  // JWT
+
+  const SECRETKEY = process.env.JWT_SECRET_KEY;
 
   try {
-    const result = await db.query(sql, values);
-    console.log(result);
+    // Get User
+    const user = await userModel.findOne({ username });
 
-    if (result.length === 0) {
+    if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const hashPassword = result[0].password;
-    const validation = await bcrypt.compare(password, hashPassword);
+    const payload = {
+      id: user.id,
+      username,
+      role: "author",
+    };
 
-    if (!validation) {
-      return res.status(401).json({ message: "Password incorrect!" });
+    // Check if user has password
+    if (!user.password) {
+      return res.status(401).json({ message: "No password set for this user" });
+    }
+
+    // Compare Password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "Invalid credentials" });
     } else {
-      return res.status(200).json({ message: "Password correct" });
+      const token = jwt.sign(payload, SECRETKEY);
+      return res
+        .status(200)
+        .json({ message: "Login successful", token })
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: process.env,
+        });
     }
   } catch (error) {
-    console.error("Error:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: error.message });
   }
 });
 
@@ -91,18 +67,27 @@ router.post("/register", async (req, res) => {
       .json({ message: "Username or Password is required!" });
   }
 
+  // Hashing Password
   const hashPassword = await bcrypt.hash(password, saltRounds);
-  const sql = "INSERT into user (username,password) VALUES (?,?)";
-  const values = [username, hashPassword];
 
-  db.query(sql, values, (error, result) => {
-    if (error) {
-      console.error("Failed to create an Account");
-      return res.status(500).json({ error });
-    } else {
-      return res.status(201).json({ result });
-    }
+  // Get last id
+  const lastId = await userModel.findOne({}).sort({ _id: -1 }).exec();
+  const id = lastId ? lastId._id + 1 : 1;
+
+  // Create a new Document
+  const user = new userModel({
+    _id: id,
+    username,
+    password: hashPassword,
   });
+
+  // Try to save document
+  try {
+    await user.save();
+    res.status(201).json({ message: "Data recorded", user });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 module.exports = router;
