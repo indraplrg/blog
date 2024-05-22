@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const bcrypt = require("bcrypt");
 const router = express.Router();
@@ -42,16 +43,14 @@ router.post("/login", async (req, res) => {
 
     if (!isPasswordValid) {
       return res.status(401).json({ message: "Invalid credentials" });
-    } else {
-      const token = jwt.sign(payload, SECRETKEY);
-      return res
-        .status(200)
-        .json({ message: "Login successful", token })
-        .cookie("token", token, {
-          httpOnly: true,
-          secure: process.env,
-        });
     }
+    const token = jwt.sign(payload, SECRETKEY, { expiresIn: "1h" });
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env,
+      maxAge: 3600000, // 1 jam
+    });
+    return res.status(200).json({ message: "Login successful", token });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
